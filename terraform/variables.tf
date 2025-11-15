@@ -49,6 +49,11 @@ variable "site_id" {
   default     = "global"
 }
 
+variable "ssm_api_param_name" {
+  description = "Exact SSM parameter name that stores the API base URL (e.g., patrick-crc/apiBaseUrl)"
+  type        = string
+}
+
 # Tagging
 variable "tags" {
   description = "Tags applied to all resources"

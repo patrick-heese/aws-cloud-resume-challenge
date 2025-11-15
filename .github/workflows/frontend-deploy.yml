@@ -5,10 +5,6 @@ on:
     branches: [ main ]
     paths:
       - 'frontend/**'
-      - 'assets/**'
-      - 'index.html'
-      - 'styles.css'
-      - 'main.js'
       - '.github/workflows/frontend-deploy.yml'
   workflow_dispatch: {}
 
@@ -21,7 +17,6 @@ env:
   TF_DIR: terraform
   FRONTEND_DIR: frontend
   BUILD_DIR: build
-  CF_DIST_ID: ""
 
 concurrency:
   group: frontend-${{ github.ref }}
@@ -51,33 +46,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Try common output names; tolerate missing ones to compute fallbacks
-          SITE_BUCKET="$(terraform -chdir=${TF_DIR} output -raw site_bucket 2>/dev/null || true)"
-          CF_DIST_ID="$(terraform -chdir=${TF_DIR} output -raw cloudfront_distribution_id 2>/dev/null || true)"
-          CF_DOMAIN="$(terraform -chdir=${TF_DIR} output -raw cloudfront_domain_name 2>/dev/null || true)"
-          SSM_PARAM="$(terraform -chdir=${TF_DIR} output -raw ssm_api_param 2>/dev/null || true)"
+          SITE_BUCKET="$(terraform -chdir=${TF_DIR} output -raw site_bucket)"
+          CF_DIST_ID="$(terraform -chdir=${TF_DIR} output -raw cloudfront_distribution_id)"
+          SSM_PARAM="$(terraform -chdir=${TF_DIR} output -raw ssm_api_param)"
 
-          if [[ -z "${SITE_BUCKET}" ]]; then
-            echo "ERROR: Terraform output 'site_bucket' not found"; exit 1
-          fi
-          if [[ -z "${SSM_PARAM}" ]]; then
-            echo "ERROR: Terraform output 'ssm_api_param' not found"; exit 1
-          fi
-
-          # If distribution id isn't an output, derive from domain (if provided)
-          if [[ -z "${CF_DIST_ID}" && -n "${CF_DOMAIN}" ]]; then
-            CF_DIST_ID="$(aws cloudfront list-distributions \
-              --query "DistributionList.Items[?DomainName=='${CF_DOMAIN}'].Id | [0]" \
-              --output text)"
-          fi
-
-          echo "SITE_BUCKET=${SITE_BUCKET}"           >> "$GITHUB_ENV"
-          echo "CF_DIST_ID=${CF_DIST_ID}"             >> "$GITHUB_ENV"
-          echo "SSM_PARAM=${SSM_PARAM}"               >> "$GITHUB_ENV"
+          echo "site_bucket=${SITE_BUCKET}"   >> "$GITHUB_OUTPUT"
+          echo "cf_dist_id=${CF_DIST_ID}"     >> "$GITHUB_OUTPUT"
+          echo "ssm_param=${SSM_PARAM}"       >> "$GITHUB_OUTPUT"
 
       - name: Resolve API base URL from SSM
         id: ssm
         shell: bash
+        env:
+          SSM_PARAM: ${{ steps.tfout.outputs.ssm_param }}
         run: |
           set -euo pipefail
           API_BASE_URL="$(aws ssm get-parameter --name "${SSM_PARAM}" --with-decryption \
@@ -85,24 +66,28 @@ jobs:
           if [[ -z "${API_BASE_URL}" || "${API_BASE_URL}" == "None" ]]; then
             echo "ERROR: Empty API base URL from SSM param '${SSM_PARAM}'"; exit 1
           fi
-          echo "API_BASE_URL=${API_BASE_URL}" >> "$GITHUB_ENV"
+          echo "api_base_url=${API_BASE_URL}" >> "$GITHUB_OUTPUT"
 
       - name: Build frontend bundle
         shell: bash
+        env:
+          API_BASE_URL: ${{ steps.ssm.outputs.api_base_url }}
+          FRONTEND_DIR: ${{ env.FRONTEND_DIR }}
+          BUILD_DIR: ${{ env.BUILD_DIR }}
         run: |
           set -euo pipefail
           rm -rf "${BUILD_DIR}"
           mkdir -p "${BUILD_DIR}"
-          # Copy all site files from frontend/
           rsync -av --delete "${FRONTEND_DIR}/" "${BUILD_DIR}/"
-          # Overwrite config.json with runtime value (no-store at upload time)
           printf '{ "apiBaseUrl": "%s" }\n' "${API_BASE_URL}" > "${BUILD_DIR}/config.json"
 
       - name: Upload static assets to S3 (long cache)
         shell: bash
+        env:
+          SITE_BUCKET: ${{ steps.tfout.outputs.site_bucket }}
+          BUILD_DIR: ${{ env.BUILD_DIR }}
         run: |
           set -euo pipefail
-          # Everything except config.json and index.html: cache long & immutable
           aws s3 sync "${BUILD_DIR}/" "s3://${SITE_BUCKET}/" \
             --delete \
             --exclude "config.json" \
@@ -113,6 +98,9 @@ jobs:
       - name: Upload index.html (short cache)
         if: success()
         shell: bash
+        env:
+          SITE_BUCKET: ${{ steps.tfout.outputs.site_bucket }}
+          BUILD_DIR: ${{ env.BUILD_DIR }}
         run: |
           if [[ -f "${BUILD_DIR}/index.html" ]]; then
             aws s3 cp "${BUILD_DIR}/index.html" "s3://${SITE_BUCKET}/index.html" \
@@ -123,15 +111,20 @@ jobs:
       - name: Upload config.json (no-store)
         if: success()
         shell: bash
+        env:
+          SITE_BUCKET: ${{ steps.tfout.outputs.site_bucket }}
+          BUILD_DIR: ${{ env.BUILD_DIR }}
         run: |
           aws s3 cp "${BUILD_DIR}/config.json" "s3://${SITE_BUCKET}/config.json" \
             --cache-control "no-store" \
             --content-type "application/json"
 
       - name: Invalidate CloudFront (targeted)
-        if: success() && env.CF_DIST_ID != ''
+        if: success() && steps.tfout.outputs.cf_dist_id != ''
         shell: bash
+        env:
+          CF_DIST_ID: ${{ steps.tfout.outputs.cf_dist_id }}
         run: |
+          aws cloudfront get-distribution --id "${CF_DIST_ID}" > /dev/null
           aws cloudfront create-invalidation --distribution-id "${CF_DIST_ID}" \
             --paths "/index.html" "/config.json"
-

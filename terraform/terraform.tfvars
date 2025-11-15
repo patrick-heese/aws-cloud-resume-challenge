@@ -22,4 +22,4 @@ waf_enable_anonymous_ip  = true
 site_id = "patrick-site"
 
 # SSM Parameter
-ssm_api_param_name = "patrick-crc/apiBaseUrl"
+ssm_api_param_name = "/patrick-crc/apiBaseUrl"

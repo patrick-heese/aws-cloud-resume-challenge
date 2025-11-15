@@ -7,7 +7,6 @@ locals {
   lambda_name      = "${var.project_name}-counter"
   ssm_param_name   = "/${var.project_name}/apiBaseUrl"
   default_tags     = var.tags
-  safe_proj = substr(regexreplace(lower(var.project_name), "[^0-9a-z_-]", "_"), 0, 50)
 
   # CORS allowed origins (resume domain, optional CF domain, optional dev)
   cors_origins_raw = flatten([
@@ -98,7 +97,7 @@ resource "aws_wafv2_web_acl" "site" {
 
   visibility_config {
     cloudwatch_metrics_enabled = true
-    metric_name                = "${local.safe_proj}-waf"
+    metric_name                = "${var.project_name}-waf"
     sampled_requests_enabled   = true
   }
 

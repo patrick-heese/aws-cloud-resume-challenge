@@ -15,5 +15,5 @@ output "cloudfront_domain_name" {
 
 output "ssm_api_param" {
   description = "SSM Parameter name that stores the API base URL"
-  value       = aws_ssm_parameter.api.name
+  value       = var.ssm_api_param_name
 }

@@ -63,7 +63,7 @@ variable "tags" {
   }
 }
 
-# WAF
+# WAF configuration
 variable "enable_waf" {
   description = "Attach AWS WAFv2 to the CloudFront distribution"
   type        = bool

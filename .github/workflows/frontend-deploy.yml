@@ -1,0 +1,73 @@
+name: frontend-deploy
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'frontend/**'
+      - 'index.html'
+      - 'styles.css'
+      - 'main.js'
+      - 'assets/**'
+      - '.github/workflows/frontend-deploy.yml'
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: "us-east-1"
+  TF_DIR: "terraform"
+
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::493233983993:role/GitHubOIDC-Frontend
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve values from Terraform and SSM
+        id: x
+        run: |
+          BUCKET=$(terraform -chdir=${{ env.TF_DIR }} output -raw site_bucket)
+          CF_DOMAIN=$(terraform -chdir=${{ env.TF_DIR }} output -raw cloudfront_domain)
+          SSM_PARAM=$(terraform -chdir=${{ env.TF_DIR }} output -raw ssm_api_param)
+          API_URL=$(aws ssm get-parameter --name "$SSM_PARAM" --query "Parameter.Value" --output text)
+          echo "BUCKET=$BUCKET" >> $GITHUB_OUTPUT
+          echo "CF_DOMAIN=$CF_DOMAIN" >> $GITHUB_OUTPUT
+          echo "API_URL=$API_URL" >> $GITHUB_OUTPUT
+
+      - name: Build site
+        run: |
+          rm -rf build && mkdir -p build
+          if [ -d frontend ]; then cp -r frontend/* build/; else cp -r ./*.html ./*.css ./*.js build/ 2>/dev/null || true; fi
+          printf '{"apiBaseUrl":"%s"}' "${{ steps.x.outputs.API_URL }}" > build/config.json
+
+      - name: Upload static assets (cache)
+        run: |
+          aws s3 sync build/ s3://${{ steps.x.outputs.BUCKET }}/ \
+            --delete \
+            --exclude "config.json" \
+            --cache-control "public,max-age=3600"
+
+      - name: Upload config.json (no-store)
+        run: |
+          aws s3 cp build/config.json s3://${{ steps.x.outputs.BUCKET }}/config.json \
+            --content-type "application/json" \
+            --cache-control "no-store, max-age=0"
+
+      - name: Invalidate CloudFront
+        run: |
+          DIST_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?DomainName=='${{ steps.x.outputs.CF_DOMAIN }}'].Id" --output text)
+          aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/index.html" "/config.json" "/*"

@@ -7,7 +7,7 @@ domain_name    = "resume.patrickheese.com"
 hosted_zone_id = "Z02030321HUP07V1WY2DI"
 
 # During DNS propagation leave this true, then set to false later
-include_cloudfront_origin = true
+include_cloudfront_origin = false
 
 # Dev/test origins if you want
 # frontend_dev_origins = ["http://localhost:5173"]
@@ -20,3 +20,6 @@ waf_enable_anonymous_ip  = true
 
 # Counter partition key
 site_id = "patrick-site"
+
+# SSM Parameter
+ssm_api_param_name = "patrick-crc/apiBaseUrl"

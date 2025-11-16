@@ -1,10 +1,10 @@
 # AWS Cloud Resume Challenge  
 A **static resume website** on **CloudFront + S3 (private via OAC)** with a **serverless visitor counter** powered by **API Gateway (HTTP API)** → **Lambda (Python)** → **DynamoDB**. The project uses **Terraform** for infrastructure, **GitHub Actions (OIDC)** for CI/CD, and a runtime `config.json` (served **no-store**) to decouple the API URL from the site build.  
 
+> Live site: https://resume.patrickheese.com 
+
 [![infra-ci](https://github.com/patrick-heese/aws-cloud-resume-challenge/actions/workflows/infra-ci.yml/badge.svg)](https://github.com/patrick-heese/aws-cloud-resume-challenge/actions/workflows/infra-ci.yml)  
 [![frontend-deploy](https://github.com/patrick-heese/aws-cloud-resume-challenge/actions/workflows/frontend-deploy.yml/badge.svg)](https://github.com/patrick-heese/aws-cloud-resume-challenge/actions/workflows/frontend-deploy.yml)  
-
-> Live site: https://resume.patrickheese.com 
 
 ## Architecture Overview  
 ![Architecture Diagram](assets/architecture-diagram.png)  
@@ -136,10 +136,10 @@ aws-cloud-resume-challenge
 
 ## Screenshots  
 ![Demo view of resume site showing footer visitor counter; header PII redacted](assets/site-demo.png)  
-*Figure 2: Redacted resume website showing footer visitor counter.  
+*Figure 2: Redacted resume website showing footer visitor counter.*  
 
 ![DynamoDB table item showing `pk = patrick-site` and an incrementing count attribute](assets/ddb-counter.png)  
-*Figure 3: DynamoDB table showing an incrementing count attribute.  
+*Figure 3: DynamoDB table showing an incrementing count attribute.*  
 
 > Live site: https://resume.patrickheese.com  
 

@@ -8,22 +8,11 @@ on:
       - 'src/count_function/**'
       - 'src/tests/**'
       - '.github/workflows/infra-ci.yml'
-  pull_request:
-    paths:
-      - 'terraform/**'
-      - 'src/count_function/**'
-      - 'src/tests/**'
-      - '.github/workflows/infra-ci.yml'
-  workflow_dispatch:
-    inputs:
-      apply:
-        description: "Run terraform apply?"
-        required: false
-        default: "no"
+  workflow_dispatch: {}
 
 permissions:
-  id-token: write
   contents: read
+  id-token: write
 
 env:
   PYTHON_VERSION: "3.12"
@@ -31,7 +20,7 @@ env:
   TF_DIR: "terraform"
 
 concurrency:
-  group: infra-${{ github.ref }}
+  group: infra-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -53,43 +42,13 @@ jobs:
         env:
           AWS_DEFAULT_REGION: ${{ env.AWS_REGION }}
         run: pytest -q
-
-  plan:
-    runs-on: ubuntu-latest
+  
+  gate:
     needs: test
-    steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
-
-      - name: Configure AWS via OIDC (Plan)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::493233983993:role/GitHubOIDC-Infra
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Terraform fmt/validate/plan (no refresh)
-        run: |
-          terraform -chdir=${{ env.TF_DIR }} fmt -check
-          terraform -chdir=${{ env.TF_DIR }} init -input=false
-          terraform -chdir=${{ env.TF_DIR }} validate
-          terraform -chdir=${{ env.TF_DIR }} plan -out=tfplan -lock=false -refresh=false
-
-  apply:
-    runs-on: ubuntu-latest
-    needs: plan
-    # Apply only on push to main OR manual dispatch with apply=yes
-    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.apply == 'yes') }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
-
-      - name: Configure AWS via OIDC (Apply)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::493233983993:role/GitHubOIDC-Infra
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Terraform init/apply
-        run: |
-          terraform -chdir=${{ env.TF_DIR }} init -input=false
-          terraform -chdir=${{ env.TF_DIR }} apply -auto-approve
+    uses: patrick-heese/aws-iac-quality-gate/.github/workflows/reusable-iac-gate.yml@v1
+    with:
+      iac_tool: terraform
+      working_directory: terraform
+      aws_region: us-east-1
+      aws_role_arn: arn:aws:iam::493233983993:role/GitHubOIDC-Infra
+      apply: true

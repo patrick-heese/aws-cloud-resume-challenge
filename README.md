@@ -1,7 +1,9 @@
 # AWS Cloud Resume Challenge  
+Global, HTTPS resume on CloudFront + API/DynamoDB; signals: 100% IaC, keyless CI/CD (OIDC), least-privilege IAM.  
+
 A **static resume website** on **CloudFront + S3 (private via OAC)** with a **serverless visitor counter** powered by **API Gateway (HTTP API)** → **Lambda (Python)** → **DynamoDB**. The project uses **Terraform** for infrastructure, **GitHub Actions (OIDC)** for CI/CD, and a runtime `config.json` (served **no-store**) to decouple the API URL from the site build.  
 
-> Live site: https://resume.patrickheese.com 
+> Live site: https://resume.patrickheese.com  
 
 [![infra-ci](https://github.com/patrick-heese/aws-cloud-resume-challenge/actions/workflows/infra-ci.yml/badge.svg)](https://github.com/patrick-heese/aws-cloud-resume-challenge/actions/workflows/infra-ci.yml)  
 [![frontend-deploy](https://github.com/patrick-heese/aws-cloud-resume-challenge/actions/workflows/frontend-deploy.yml/badge.svg)](https://github.com/patrick-heese/aws-cloud-resume-challenge/actions/workflows/frontend-deploy.yml)  
@@ -10,6 +12,7 @@ A **static resume website** on **CloudFront + S3 (private via OAC)** with a **se
 ![Architecture Diagram](assets/architecture-diagram.png)  
 *Figure 1: CloudFront serves a private S3 bucket via OAC; `main.js` fetches `config.json` (no-store) to discover the API URL, then calls `GET /count` on API Gateway → Lambda → DynamoDB. ACM (us-east-1) and WAF are attached to CloudFront; CI writes `config.json` from SSM and invalidates CloudFront.*  
 
+### Core Components
 - **Route 53 (Public Hosted Zone)** - A/AAAA ALIAS to CloudFront.  
 - **CloudFront (Primary) + WAFv2 + ACM (us-east-1)** – TLS termination, caching, and edge protection.  
 - **S3 (private)** – Website assets (`index.html`, `styles.css`, `main.js`, `config.json`, `favicon.ico`). **Block Public Access: ON**. CF→S3 authorized by **OAC (SigV4)**.  
@@ -43,7 +46,7 @@ A **static resume website** on **CloudFront + S3 (private via OAC)** with a **se
 - **Other Tools:** AWS CLI  
 
 ## Deployment Instructions  
-> **Note:** All command-line examples use `bash` syntax highlighting to maximize compatibility and readability. If you are using PowerShell or Command Prompt on Windows, the commands remain the same but prompt styles may differ.  
+> **Note:** Many commands are identical across shells; the main differences are line continuation (PowerShell: `` ` `` • Bash: `\` • cmd.exe: `^`), environment variables (PowerShell: `$env:NAME=...` • Bash: `NAME=...` • cmd.exe: `set NAME=...`), and path separators.  
 
 1. To deploy all the infrastructure, a registered domain/subdomain in Route 53 is needed (e.g., `firstnamelastname.com` / `resume.firstnamelastname.com`). Terraform can create and auto-validate an **ACM certificate in us-east-1 (required for CloudFront)** via Route 53 DNS validation.  
 
@@ -52,26 +55,27 @@ A **static resume website** on **CloudFront + S3 (private via OAC)** with a **se
 
 3. Edit variables in `terraform.tfvars` and/or `variables.tf` to customize the deployment.  
 
-4. Navigate to the `terraform` folder and deploy:   
-   ```bash
-   cd terraform
-   terraform init
-   terraform plan # Optional, but recommended.
-   terraform apply
-   ```
+4. Navigate to the `terraform` folder and deploy:  
+    ```bash
+    cd terraform
+    terraform init
+    terraform plan # Optional, but recommended.
+    terraform apply
+    ```
 
 5. Replace the `index.html` and `styles.css` files with your HTML resume and associated stylesheets.  
 
-6. *(Optional)* Run `test_handler.py` locally to test the Lambda visitor counter. The **infra-ci** GitHub Action runs these tests on every push to `main`. If tests fail, Terraform is not applied:
+6. *(Optional)* Run `test_handler.py` locally to test the Lambda visitor counter. The **infra-ci** GitHub Action runs these tests on every push to `main`. If tests fail, Terraform is not applied:  
     ```bash
 	cd ../src/tests
-	python -m venv .venv && source .venv/bin/activate
+	python -m venv .venv
+    .\.venv\Scripts\Activate.ps1
 	pip install -r requirements-dev.txt
 	pytest -q
 	```
 
 7. To set up GitHub Actions, commit and push the repo to GitHub (`main`). Ensure your AWS account has a GitHub **OIDC provider**. Create two IAM roles and paste their ARNs into `.github/workflows/infra-ci.yml` and `.github/workflows/frontend-deploy.yml`:  
-    - `GitHubOIDC-Infra` (plan/apply): Trust = GitHub OIDC with `sub` restricted to your repo/branch. Permissions = start broad while iterating (e.g., `AdministratorAccess`), then narrow to ACM, APIGWv2, CloudFront, DynamoDB, IAM (Lambda attach), Lambda, Logs, Route 53, S3, SSM, WAFv2 plus S3/DynamoDB permissions for the Terraform **backend** (if used).  
+    - `GitHubOIDC-Infra` (plan/apply): Trust = GitHub OIDC with `sub` restricted to your repo/branch. Permissions = start broad while iterating (e.g., `AdministratorAccess`), then narrow to ACM, APIGWv2, CloudFront, DynamoDB, IAM (Lambda attach), Lambda, Logs, Route 53, S3, SSM, WAFv2 plus S3/DynamoDB permissions for the Terraform **backend** (if used). See [aws-iac-quality-gate](https://github.com/patrick-heese/aws-iac-quality-gate) for referenced workflow.
     - `GitHubOIDC-Frontend` (site deploy): Trust = your repo/branch. Permissions (least-privilege):  
         - `ssm:GetParameter` on your parameter  
 		- `s3:ListBucket` on the site bucket  
@@ -102,36 +106,37 @@ A **static resume website** on **CloudFront + S3 (private via OAC)** with a **se
 ## Project Structure  
 ```plaintext
 aws-cloud-resume-challenge
+├── .github/                             
+│   └── workflows/                       
+│       ├── frontend-deploy.yml          # Build → S3 sync → CF invalidate (OIDC)
+│       └── infra-ci.yml                 # Caller workflow → reusable IaC Gate
 ├── assets/
 │   ├── architecture-diagram.png         # Architecture diagram
-│   ├── site-demo.png                	 # Resume footer + counter; PII redacted
-│   └── ddb-counter.png              	 # DynamoDB item view (pk,count)
-├── frontend/							 # Website files
+│   ├── site-demo.png                    # Resume footer + counter; PII redacted
+│   └── ddb-counter.png                  # DynamoDB item view (pk,count)
+├── frontend/                            # Website files
 │   ├── config.json                      # (written by CI at deploy; served no-store)
 │   ├── favicon.ico                      
-│   ├── index.html						 
-│   ├── main.js            	 		     # Fetches config.json + GET /count
-│   └── styles.css			    	 	 
-├── terraform/                   		 # Terraform templates
-│   ├── main.tf                     	 # Main Terraform config
+│   ├── index.html                       
+│   ├── main.js                          # Fetches config.json + GET /count
+│   └── styles.css                       
+├── terraform/                           # Terraform templates
+│   ├── main.tf                          # Main Terraform config
 │   ├── variables.tf                     # Input variables
-│   ├── outputs.tf						 # Exported values
-│   ├── terraform.tfvars            	 # Default variable values
-│   ├── providers.tf			    	 # AWS provider definition
-│   ├── versions.tf						 # Terraform version constraint
-│   └── backend.tf                 		 # Remote state: S3 backend + DynamoDB lock (shared by Local & CI)
-├── src/								 # Lambda source code and tests
-│   ├── count_function/
+│   ├── outputs.tf                       # Exported values
+│   ├── terraform.tfvars                 # Default variable values
+│   ├── providers.tf                     # AWS provider definition
+│   ├── versions.tf                      # Terraform version constraint
+│   └── backend.tf                       # Remote state: S3 backend + DynamoDB lock (shared by Local & CI)
+├── src                                  # Lambda source code and tests
+│   ├── count_function/                  
 │   │   └── count_lambda.py              # Lambda handler (atomic UpdateItem ADD)
-│   └── tests/
+│   └── tests/                           
 │       ├── requirements-dev.txt         # boto3, moto, pytest
 │       └── test_handler.py              # Unit tests (moto @mock_aws)
-├── .github/workflows/					 # GitHub Actions workflows
-│   ├── infra-ci.yml                     # Tests → TF plan/apply (OIDC)
-│   └── frontend-deploy.yml              # Build → S3 sync → CF invalidate (OIDC)
-├── LICENSE
-├── README.md
-└── .gitignore
+├── LICENSE                              
+├── README.md                            
+└── .gitignore                           
 ```
 
 ## Screenshots  
@@ -161,6 +166,6 @@ Cloud Administrator | Aspiring Cloud Engineer/Architect
 [LinkedIn Profile](https://www.linkedin.com/in/patrick-heese/) | [GitHub Profile](https://github.com/patrick-heese)  
 
 ## Acknowledgments  
-This project was inspired by the original Cloud Resume Challenge concept [The Cloud Resume Challenge - AWS](https://cloudresumechallenge.dev/docs/the-challenge/aws).  
+This project was inspired by the [The Cloud Resume Challenge - AWS](https://cloudresumechallenge.dev/docs/the-challenge/aws).  
 The architecture diagram included here is my own version.  
 I designed and developed all Infrastructure as Code (Terraform), Lambda/Python code, GitHub Actions (OIDC) workflows, and project documentation.  

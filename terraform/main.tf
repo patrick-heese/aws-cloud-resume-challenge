@@ -50,7 +50,6 @@ resource "aws_cloudfront_origin_access_control" "oac" {
 ########################################
 resource "aws_acm_certificate" "cert" {
   count             = var.enable_route53 ? 1 : 0
-  provider          = aws.use1
   domain_name       = var.domain_name
   validation_method = "DNS"
   tags              = local.default_tags
@@ -76,7 +75,6 @@ resource "aws_route53_record" "cert_validation" {
 
 resource "aws_acm_certificate_validation" "validated" {
   count                   = var.enable_route53 ? 1 : 0
-  provider                = aws.use1
   certificate_arn         = aws_acm_certificate.cert[0].arn
   validation_record_fqdns = [for r in values(aws_route53_record.cert_validation) : r.fqdn]
 }
@@ -86,7 +84,6 @@ resource "aws_acm_certificate_validation" "validated" {
 ########################################
 resource "aws_wafv2_web_acl" "site" {
   count       = var.enable_waf ? 1 : 0
-  provider    = aws.use1
   name        = "${var.project_name}-waf"
   description = "WAF for ${var.project_name} CloudFront"
   scope       = "CLOUDFRONT"
